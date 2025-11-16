@@ -1,14 +1,16 @@
 package com.swulion.puppettale.controller;
 
-import com.swulion.puppettale.dto.ChatRequestDto;
 import com.swulion.puppettale.dto.ChatResponseDto;
+import com.swulion.puppettale.dto.ChatStartRequestDto; // 사운드ID 포함 DTO로 통일
 import com.swulion.puppettale.service.ChatService;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/chat")
@@ -17,18 +19,21 @@ public class ChatController {
 
     private final ChatService chatService;
 
-    // 기능명세서 1.1.1 - 텍스트 채팅
-    // [POST] /api/chat/send
-    @PostMapping("/send")
-    public ResponseEntity<ChatResponseDto> sendMessage(@RequestBody ChatRequestDto chatRequestDto) {
-        if (chatRequestDto.getSessionId() == null || chatRequestDto.getUserMessage() == null || chatRequestDto.getUserMessage().isEmpty()) {
-            return ResponseEntity.badRequest().build();
+    // 기능 명세 1.1.1, 1.2, 1.3 통합 엔드포인트
+    // 모든 채팅 요청 (시작 대화, 일반 대화 모두)은 이 엔드포인트로 통합 처리
+    // [POST] /api/chat/process
+    @PostMapping("/process")
+    public ResponseEntity<ChatResponseDto> processChat(@RequestBody ChatStartRequestDto requestDto, HttpServletRequest httpServletRequest) {
+        String sessionId = Optional.ofNullable(requestDto.getSessionId()).orElse("default_user_session");
+
+        if (requestDto.getUserMessage() == null || requestDto.getUserMessage().isEmpty()) {
+            return ResponseEntity.badRequest().body(ChatResponseDto.builder()
+                    .sessionId(sessionId)
+                    .aiResponse("메시지를 입력해 주세요.")
+                    .build());
         }
-        ChatResponseDto response = chatService.processChat(chatRequestDto);
+        ChatResponseDto response = chatService.processChat(requestDto);
 
         return ResponseEntity.ok(response);
     }
-
-
-    // TODO: 대화 기록 조회 (GET /api/chat/logs/{sessionId}) 등의 API를 추가할 수 있습니다.
 }
