@@ -10,14 +10,12 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -40,15 +38,24 @@ public class ChatService {
             "https://generativelanguage.googleapis.com/v1beta/models/" + GEMINI_MODEL + ":generateContent?key=";
 
     private static final String AI_PERROT_PROMPT =
-            "너는 친절하고 호기심 많은 AI 퍼펫이야. 사용자는 아동이며, 너는 아동과 대화하면서 나중에 이 대화 내용을 바탕으로 재미있는 동화를 만들어 줄 거야. " +
-                    "아동의 상상력을 자극하고 긍정적인 대화를 유도해. " +
-                    "사용자에게 명확하고 쉬운 한국어로 답변하되, 과도한 감탄사나 불필요한 이모지(Emoji) 사용은 자제하고 차분하고 친근한 말투로 응답해.";
+            "너는 아동의 소중한 마음을 깊이 공감하고, 그 감정을 안전하고 긍정적으로 표현하도록 돕는 친절하고 따뜻한 AI 퍼펫이야. " +
+                    "너의 주된 목표는 아동과 대화하면서 핵심 감정을 포착하여, 나중에 부모 등 제3자에게 전달할 단 한 문장 또는 짧은 요약을 준비하는 것이야. " +
+                    "아동에게 답변할 때는 '그 마음을 소중히 여긴다'는 느낌을 주어야 하며, 감정 요약이나 전달에 관련된 내용은 '반드시 아동의 동의나 허락을 구하는 방식'으로 조심스럽게 제안해야 해. " +
+                    "과도한 감탄사나 이모지 사용은 자제하고, 매우 사려 깊고 온화한 말투로 응답해. " +
+                    "답변은 반드시 100자 이하로 작성해.";
 
     private static final List<SoundOptionDto> SOUND_OPTIONS = Arrays.asList(
-            new SoundOptionDto("sea", "잔잔한 바닷소리", "현재 대화 배경은 잔잔한 바닷가 소리야."),
+            new SoundOptionDto("breeze", "잔잔한 바람소리", "현재 대화 배경은 잔잔한 바람 소리야."),
             new SoundOptionDto("forest", "평온한 숲", "현재 대화 배경은 평온한 숲 소리야."),
             new SoundOptionDto("ocean", "시원한 바다", "현재 대화 배경은 시원한 바다 소리야."),
             new SoundOptionDto("none", "음악 없음", "현재 대화 배경은 조용하고 편안한 방이야.")
+    );
+
+    private static final Map<String, String> SOUND_IMAGE_MAP = Map.of(
+            "breeze", "images/breeze.png",
+            "forest", "images/forest.png",
+            "ocean", "images/ocean.png",
+            "none", "images/none.png"
     );
 
     // 사운드 ID에 맞는 AI 컨텍스트를 찾아주는 헬퍼 메서드
@@ -74,6 +81,7 @@ public class ChatService {
         // 2. AI 응답 생성 (soundId와 함께 Gemini 호출)
         String aiResponse = callGeminiApi(sessionId, userMessage, soundId);
         String finalSoundId = sessionSoundMap.getOrDefault(sessionId, "none");
+        String backgroundUrl = SOUND_IMAGE_MAP.getOrDefault(finalSoundId, SOUND_IMAGE_MAP.get("none"));
 
         // 3. AI 응답 메시지 저장
         LocalDateTime aiResponseTime = LocalDateTime.now();
@@ -85,6 +93,7 @@ public class ChatService {
                 .aiResponse(aiResponse)
                 .timestamp(aiResponseTime.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME))
                 .currentSoundId(finalSoundId)
+                .backgroundImageUrl(backgroundUrl)
                 .build();
     }
 
@@ -148,29 +157,52 @@ public class ChatService {
         HttpEntity<GeminiChatRequestDto> entity = new HttpEntity<>(requestBody, headers);
         String apiUrlWithKey = GEMINI_API_URL + apiKey;
 
-        try {
-            // RestTemplate으로 API 호출
-            ResponseEntity<GeminiChatResponseDto> response = restTemplate.postForEntity(
-                    apiUrlWithKey, entity, GeminiChatResponseDto.class
-            );
+        final int MAX_RETRIES = 3;
+        final long WAIT_TIME_MS = 1000; // 1초 대기
 
-            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                String aiText = response.getBody().getFirstText();
+        for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                // RestTemplate으로 API 호출
+                ResponseEntity<GeminiChatResponseDto> response = restTemplate.postForEntity(
+                        apiUrlWithKey, entity, GeminiChatResponseDto.class
+                );
 
-                // 줄 바꿈 문자 제거 및 공백 치환
-                if (aiText != null) {
-                    aiText = aiText.replace("\n", " ").replace("\r", " ").trim();
+                if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                    // 성공적인 응답 처리 (기존 로직)
+                    String aiText = response.getBody().getFirstText();
+                    if (aiText != null) {
+                        aiText = aiText.replace("\n", " ").replace("\r", " ").trim();
+                    }
+                    return aiText;
                 }
-                return aiText;
+
+                // 200번대가 아닌 응답이지만 5xx 오류는 아닌 경우
+                log.warn("Gemini API가 200이 아닌 응답 반환: {}", response.getStatusCode());
+                return "AI 연결 문제 발생. 응답 코드: " + response.getStatusCode();
+
+            } catch (HttpServerErrorException.ServiceUnavailable e) {
+                // 503 Service Unavailable 오류 발생 시 재시도 처리
+                if (attempt < MAX_RETRIES) {
+                    log.warn("Gemini 503 오류 발생 (시도 {}/{}), 1초 후 재시도합니다.", attempt, MAX_RETRIES);
+                    try {
+                        Thread.sleep(WAIT_TIME_MS);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt(); // 인터럽트 상태 복구
+                        return "AI 서버 통신 중 대기 실패";
+                    }
+                } else {
+                    // 최대 재시도 횟수를 초과한 경우
+                    log.error("Gemini API 호출 실패: 최대 재시도 횟수 초과", e);
+                    return "AI 서버와 통신 중 오류: 지속적인 서버 과부하";
+                }
+            } catch (Exception e) {
+                // 503 외 다른 모든 오류 (4xx, 네트워크 등)
+                log.error("Gemini API 호출 실패: {}", e.getMessage(), e);
+                return "AI 서버와 통신 중 오류";
             }
-
-            log.warn("Gemini API가 200이 아닌 응답 반환: {}", response.getStatusCode());
-            return "AI 연결 문제 발생. 응답 코드: " + response.getStatusCode();
-
-        } catch (Exception e) {
-            log.error("Gemini API 호출 실패: {}", e.getMessage(), e);
-            return "AI 서버와 통신 중 오류";
         }
+        // 이 줄에 도달할 일은 없지만, 컴파일러를 위해 반환 추가 (실패 메시지)
+        return "AI 서버와 통신 중 오류: 알 수 없는 이유로 실패";
     }
 
     private void saveMessage(String sessionId, Speaker speaker, String message, LocalDateTime timestamp) {
