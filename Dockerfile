@@ -6,6 +6,9 @@ WORKDIR /app
 COPY build.gradle settings.gradle gradlew /app/
 COPY gradle /app/gradle
 
+# gradlew 실행 권한 부여
+RUN chmod +x gradlew
+
 RUN ./gradlew --version
 
 # 소스코드 전체 복사
