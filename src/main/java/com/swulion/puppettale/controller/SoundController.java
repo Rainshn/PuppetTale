@@ -25,10 +25,10 @@ import java.util.List;
 public class SoundController {
 
     private static final List<SoundOptionDto> SOUND_OPTIONS = Arrays.asList(
-            new SoundOptionDto("sea", "잔잔한 바닷소리", "지금 배경은 잔잔한 바닷가 소리야."),
-            new SoundOptionDto("forest", "평온한 숲", "지금 배경은 아이들이 노는 놀이터 소리야."),
-            new SoundOptionDto("ocean", "시원한 바다", "지금 배경은 길거리 버스킹 소리야."),
-            new SoundOptionDto("none", "음악 없음", "지금 배경은 조용하고 편안한 방이야.")
+            new SoundOptionDto("breeze", "잔잔한 바람소리", "현재 대화 배경은 잔잔한 바람 소리야."),
+            new SoundOptionDto("amusement", "신나는 놀이공원", "현재 대화 배경은 신나는 놀이공원 소리야."),
+            new SoundOptionDto("ocean", "시원한 바다", "현재 대화 배경은 시원한 바다 소리야."),
+            new SoundOptionDto("none", "음악 없음", "현재 대화 배경은 조용하고 편안한 방이야.")
     );
 
     // 클라이언트에게 사운드 옵션 목록을 제공하는 API

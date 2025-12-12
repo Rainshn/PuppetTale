@@ -3,6 +3,8 @@ package com.swulion.puppettale.dto;
 import lombok.Builder;
 import lombok.Getter;
 
+import java.util.List;
+
 @Getter
 @Builder
 public class ChatResponseDto {
@@ -11,4 +13,7 @@ public class ChatResponseDto {
     private String timestamp;  // 응답 시각
     private String currentSoundId;
     private String backgroundImageUrl;
+
+    private String detectedEmotion;
+    private List<StoryIngredientsDto> storyIngredientsDtoList;
 }

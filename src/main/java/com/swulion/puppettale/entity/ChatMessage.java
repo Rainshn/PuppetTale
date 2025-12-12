@@ -12,6 +12,7 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@Table(name = "ChatMessages")
 public class ChatMessage {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -29,5 +30,5 @@ public class ChatMessage {
 
     private LocalDate logDate;
 
-    private String keywords; // 키워드 (추후 기능)
+    private String keywords; // 키워드
 }

@@ -1,10 +1,11 @@
 package com.swulion.puppettale.service;
 
-import com.swulion.puppettale.dto.FairyTaleDetailResponse;
-import com.swulion.puppettale.dto.FairyTaleListItem;
-import com.swulion.puppettale.dto.FairyTaleListResponse;
-import com.swulion.puppettale.dto.UpdateFairyTaleTitleRequest;
+import com.swulion.puppettale.dto.*;
+import com.swulion.puppettale.entity.Child;
 import com.swulion.puppettale.entity.FairyTale;
+import com.swulion.puppettale.entity.FairyTalePage;
+import com.swulion.puppettale.repository.ChildRepository;
+import com.swulion.puppettale.repository.FairyTalePageRepository;
 import com.swulion.puppettale.repository.FairyTaleRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +18,45 @@ import java.util.List;
 @RequiredArgsConstructor
 public class FairyTaleService {
     private final FairyTaleRepository fairyTaleRepository;
+    private final ChildRepository childRepository;
+    private final FairyTalePageRepository fairyTalePageRepository;
+
+    // 동화 저장
+    @Transactional
+    public FairyTale saveFairyTale(Long childId, String title, List<FairyTalePageData> pages) {
+        Child child = childRepository.findById(childId)
+                .orElseThrow(() -> new IllegalArgumentException("아이 정보를 찾을 수 없습니다."));
+
+        FairyTale fairyTale = new FairyTale();
+        fairyTale.setChild(child);
+
+        if(title != null && !title.isBlank()) {
+            fairyTale.setTitle(title);
+        } else {
+            fairyTale.setTitle("제목 없음");
+        }
+
+        // 표지=마지막 페이지 이미지
+        if (pages != null && !pages.isEmpty()) {
+            String lastImage = pages.get(pages.size() - 1).getImageUrl();
+            fairyTale.setThumbnailUrl(lastImage);
+        }
+        fairyTaleRepository.save(fairyTale); // ID 생성
+
+        if (pages != null) {
+            int idx = 1;
+            for (FairyTalePageData p : pages) {
+                FairyTalePage page = new FairyTalePage();
+                page.setPageNumber(idx++);
+                page.setImageUrl(p.getImageUrl());
+                page.setText(p.getText());
+                page.setFairyTale(fairyTale);
+                fairyTalePageRepository.save(page);
+                fairyTale.getPages().add(page);
+            }
+        }
+        return fairyTale;
+    }
 
     // 동화 목록 조회
     @Transactional
