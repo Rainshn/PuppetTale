@@ -13,4 +13,5 @@ public class SoundOptionDto {
     private String id;
     private String name;
     private String aiContext; // AI에게 전달할 배경 설명
+    String fileUrl;
 }

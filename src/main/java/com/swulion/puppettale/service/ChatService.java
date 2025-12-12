@@ -34,6 +34,7 @@ public class ChatService {
 
     private final ChatMessageRepository chatMessageRepository;
     private final RestTemplate restTemplate;
+    private final SoundService soundService;
     private final ConcurrentMap<String, String> sessionSoundMap = new ConcurrentHashMap<>();
 
     // application.properties에서 API Key 주입
@@ -61,29 +62,6 @@ public class ChatService {
         }
     }
 
-    private static final List<SoundOptionDto> SOUND_OPTIONS = Arrays.asList(
-            new SoundOptionDto("breeze", "잔잔한 바람소리", "현재 대화 배경은 잔잔한 바람 소리야."),
-            new SoundOptionDto("amusement", "신나는 놀이공원", "현재 대화 배경은 신나는 놀이공원 소리야."),
-            new SoundOptionDto("ocean", "시원한 바다", "현재 대화 배경은 시원한 바다 소리야."),
-            new SoundOptionDto("none", "음악 없음", "현재 대화 배경은 조용하고 편안한 방이야.")
-    );
-
-    private static final Map<String, String> SOUND_IMAGE_MAP = Map.of(
-            "breeze", "images/breeze.png",
-            "amusement", "images/amusement.png",
-            "ocean", "images/ocean.png",
-            "none", "images/none.png"
-    );
-
-    // 사운드 ID에 맞는 AI 컨텍스트를 찾아주는 헬퍼 메서드
-    private String getAiContext(String soundId) {
-        return SOUND_OPTIONS.stream()
-                .filter(option -> option.getId().equalsIgnoreCase(soundId))
-                .findFirst()
-                .map(SoundOptionDto::getAiContext)
-                .orElse(SOUND_OPTIONS.get(3).getAiContext()); // 기본값은 'none'
-    }
-
     @Transactional
     public ChatResponseDto processChat(ChatStartRequestDto request) { // DTO를 ChatStartRequestDto로 통일 (soundId 포함)
         String sessionId = request.getSessionId();
@@ -104,7 +82,7 @@ public class ChatService {
         String aiResponse = callGeminiApi(sessionId, userMessage, soundId,
                 userName, userAge, userConstraint, puppetName);
         String finalSoundId = sessionSoundMap.getOrDefault(sessionId, "none");
-        String backgroundUrl = SOUND_IMAGE_MAP.getOrDefault(finalSoundId, SOUND_IMAGE_MAP.get("none"));
+        String backgroundUrl = soundService.getBackgroundImageUrl(finalSoundId);
 
         // 3. AI 응답 메시지 저장
         LocalDateTime aiResponseTime = LocalDateTime.now();
@@ -133,7 +111,7 @@ public class ChatService {
         }
 
         // 사운드 컨텍스트와 기본 페르소나를 결합하여 최종 시스템 명령 생성
-        String soundContext = getAiContext(currentSoundId); // 결정된 soundId 사용
+        String soundContext = soundService.getAiContext(currentSoundId); // 결정된 soundId 사용
 
         String systemInstruction = this.aiSystemPromptTemplate
                 .replace("{Puppet_Name}", puppetName)

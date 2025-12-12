@@ -24,11 +24,13 @@ import java.util.List;
 @Slf4j
 public class SoundController {
 
+    private static final String BASE_SOUND_URL = "https://cdn.example.com/sounds/";
+
     private static final List<SoundOptionDto> SOUND_OPTIONS = Arrays.asList(
-            new SoundOptionDto("breeze", "잔잔한 바람소리", "현재 대화 배경은 잔잔한 바람 소리야."),
-            new SoundOptionDto("amusement", "신나는 놀이공원", "현재 대화 배경은 신나는 놀이공원 소리야."),
-            new SoundOptionDto("ocean", "시원한 바다", "현재 대화 배경은 시원한 바다 소리야."),
-            new SoundOptionDto("none", "음악 없음", "현재 대화 배경은 조용하고 편안한 방이야.")
+            new SoundOptionDto("breeze", "잔잔한 바람소리", "현재 대화 배경은 잔잔한 바람 소리야.", BASE_SOUND_URL + "breeze.mp3"),
+            new SoundOptionDto("amusement", "신나는 놀이공원", "현재 대화 배경은 신나는 놀이공원 소리야.", BASE_SOUND_URL + "amusement.mp3"),
+            new SoundOptionDto("ocean", "시원한 바다", "현재 대화 배경은 시원한 바다 소리야.", BASE_SOUND_URL + "ocean.mp3"),
+            new SoundOptionDto("none", "음악 없음", "현재 대화 배경은 조용하고 편안한 방이야.", null)
     );
 
     // 클라이언트에게 사운드 옵션 목록을 제공하는 API
@@ -36,31 +38,5 @@ public class SoundController {
     @GetMapping
     public List<SoundOptionDto> getSoundOptions() {
         return SOUND_OPTIONS;
-    }
-
-    // 사운드 파일을 스트리밍하여 재생할 수 있게 해주는 API
-    // [GET] /api/sounds/{soundId}/play
-    @GetMapping("/{soundId}/play")
-    public ResponseEntity<Resource> playSound(@PathVariable String soundId) throws IOException {
-
-        // 'none' 옵션은 파일이 없으므로, 처리하지 않음
-        if ("none".equals(soundId)) {
-            return ResponseEntity.badRequest().body(null);
-        }
-        Path currentPath = Paths.get("").toAbsolutePath();
-        Path staticPath = Paths.get(currentPath.toString(), "src", "main", "resources", "static", "sounds");
-        File file = staticPath.resolve(soundId + ".mp3").toFile();
-
-        if (!file.exists()) {
-            log.warn("파일 존재하지 않음: {}", file.getAbsolutePath());
-            return ResponseEntity.notFound().build();
-        }
-        FileSystemResource resource = new FileSystemResource(file);
-
-        return ResponseEntity.ok()
-                // 오디오 파일 타입 설정
-                .contentType(MediaType.parseMediaType("audio/mpeg"))
-                .header(HttpHeaders.CONTENT_LENGTH, String.valueOf(file.length()))
-                .body(resource);
     }
 }
