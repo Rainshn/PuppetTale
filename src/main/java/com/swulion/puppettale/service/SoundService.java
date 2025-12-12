@@ -10,8 +10,8 @@ import java.util.Map;
 @Service
 public class SoundService {
 
-    // S3 URL 대신 더미/임시 URL을 사용
-    private static final String BASE_SOUND_URL = "https://cdn.example.com/sounds/";
+    // S3 URl
+    private static final String BASE_SOUND_URL = "https://puppettale-images.s3.ap-northeast-2.amazonaws.com/sounds/";
     private static final String DEFAULT_SOUND_ID = "none";
 
     private static final List<SoundOptionDto> SOUND_OPTIONS = Arrays.asList(
