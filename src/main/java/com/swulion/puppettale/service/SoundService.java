@@ -14,6 +14,8 @@ public class SoundService {
     private static final String BASE_SOUND_URL = "https://puppettale-images.s3.ap-northeast-2.amazonaws.com/sounds/";
     private static final String DEFAULT_SOUND_ID = "none";
 
+    private static final String BASE_IMAGE_URL = "https://puppettale-images.s3.ap-northeast-2.amazonaws.com/images/";
+
     private static final List<SoundOptionDto> SOUND_OPTIONS = Arrays.asList(
             new SoundOptionDto("breeze", "잔잔한 바람소리", "현재 대화 배경은 잔잔한 바람 소리야.", BASE_SOUND_URL + "breeze.mp3"),
             new SoundOptionDto("amusement", "신나는 놀이공원", "현재 대화 배경은 신나는 놀이공원 소리야.", BASE_SOUND_URL + "amusement.mp3"),
@@ -23,10 +25,10 @@ public class SoundService {
 
     // AI 채팅방 배경 이미지 URL
     private static final Map<String, String> SOUND_IMAGE_MAP = Map.of(
-            "breeze", "images/breeze.png",
-            "amusement", "images/amusement.png",
-            "ocean", "images/ocean.png",
-            "none", "images/none.png"
+            "breeze", BASE_IMAGE_URL + "breeze.png",
+            "amusement", BASE_IMAGE_URL + "amusement.png",
+            "ocean", BASE_IMAGE_URL + "ocean.png",
+            "none", BASE_IMAGE_URL + "none.png"
     );
 
     // 사운드 옵션 목록 제공
