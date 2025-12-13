@@ -38,6 +38,3 @@ out/
 
 src/main/resources/application.properties
 .env
-
-src/main/resources/prompts/ai_systemPrompt_template.txt
-src/main/resources/prompts/story_creation_template.txt
