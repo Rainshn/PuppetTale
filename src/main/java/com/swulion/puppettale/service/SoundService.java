@@ -23,6 +23,13 @@ public class SoundService {
             new SoundOptionDto("none", "음악 없음", "현재 대화 배경은 조용하고 편안한 방이야.", null)
     );
 
+    // 기본 AI 컨텍스트
+    private static final String DEFAULT_AI_CONTEXT = SOUND_OPTIONS.stream()
+            .filter(option -> "none".equalsIgnoreCase(option.getId()))
+            .findFirst()
+            .map(SoundOptionDto::getAiContext)
+            .orElse("현재 대화 배경은 조용하고 편안한 방이야.");
+
     // AI 채팅방 배경 이미지 URL
     private static final Map<String, String> SOUND_IMAGE_MAP = Map.of(
             "breeze", BASE_IMAGE_URL + "breeze.png",
@@ -42,7 +49,7 @@ public class SoundService {
                 .filter(option -> option.getId().equalsIgnoreCase(soundId))
                 .findFirst()
                 .map(SoundOptionDto::getAiContext)
-                .orElse(getAiContext(DEFAULT_SOUND_ID)); // 기본값 'none'의 컨텍스트 반환
+                .orElse(DEFAULT_AI_CONTEXT);
     }
 
     // 사운드 ID에 맞는 배경 이미지 URL을 찾아주는 메서드
