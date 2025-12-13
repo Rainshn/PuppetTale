@@ -174,6 +174,9 @@ public class ChatService {
 
                 if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
                     String jsonText = response.getBody();
+
+                    log.error("Gemini Raw Response Body: {}" + jsonText);
+
                     GeminiApiResponse apiResponse = objectMapper.readValue(jsonText, GeminiApiResponse.class);
 
                     String innerJsonText = apiResponse.getCandidates().get(0)
