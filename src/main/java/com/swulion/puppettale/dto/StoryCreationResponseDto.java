@@ -9,8 +9,16 @@ import java.util.List;
 @Builder
 public class StoryCreationResponseDto {
     private String sessionId;
+    private Long fairyTaleId;
+
+    private String title;
+    private String thumbnailUrl;
+    private List<FairyTalePageData> pages;
+
     private String createdStory;
     private String detectedEmotion;
     private List<StoryIngredientsDto> storyIngredients;
-    private Long fairyTaleId;
+
+
+
 }
