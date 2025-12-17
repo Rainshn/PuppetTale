@@ -133,10 +133,13 @@ public class DischargeService {
 
         return StoryCreationResponseDto.builder()
                 .sessionId(sessionId)
+                .fairyTaleId(saved != null ? saved.getId() : null)
+                .title(newTitle)
+                .thumbnailUrl(pages.isEmpty() ? null : pages.get(0).getImageUrl())
+                .pages(pages)
                 .createdStory(createdStory)
                 .detectedEmotion(detectedEmotion)
                 .storyIngredients(ingredients)
-                .fairyTaleId(saved != null ? saved.getId() : null)
                 .build();
     }
 
