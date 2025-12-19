@@ -79,6 +79,14 @@ public class DischargeService {
         Integer userAge = request.getUserAge();
         String puppetName = Optional.ofNullable(request.getPuppetName()).orElse("토리");
 
+        // 일일 25개 생성 제한
+        if (fairyTaleService.getTodayStoryCount(childId) >= 25) {
+            return StoryCreationResponseDto.builder()
+                    .sessionId(request.getSessionId())
+                    .createdStory("오늘은 벌써 25개의 동화를 만들었어! 내일 더 재미있는 이야기를 들려줄게.")
+                    .build();
+        }
+
         // 대화 분석
         GeminiChatJsonContentDto analysisResult = analyzeChatHistory(sessionId, userName, userAge, puppetName);
 
@@ -202,12 +210,6 @@ public class DischargeService {
         return "A beautiful storybook scene showing: " + pageContext +
                 ". Maintain a consistent fairytale mood, soft colors, high detail, no text.";
     }
-
-//    // 이미지 생성 스텁
-//    private String callImageGeneration(String prompt) {
-//        // TODO: 제미나이 이미지 API 연동. 현재는 placeholder 반환
-//        return "https://cdn.example.com/placeholder-image.png";
-//    }
 
     // 특정 세션의 모든 대화 기록을 조회하여 동화책 생성 준비
     @Transactional(readOnly = true)

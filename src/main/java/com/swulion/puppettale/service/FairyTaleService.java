@@ -122,4 +122,11 @@ public class FairyTaleService {
 
         fairyTale.softDelete();
     }
+
+    // 오늘 날짜의 시작 시간
+    @Transactional
+    public long getTodayStoryCount(Long childId){
+        java.time.LocalDateTime startOfToday = java.time.LocalDate.now().atStartOfDay();
+        return fairyTaleRepository.countByChildIdAndIsDeletedFalseAndCreatedAtAfter(childId, startOfToday);
+    }
 }
