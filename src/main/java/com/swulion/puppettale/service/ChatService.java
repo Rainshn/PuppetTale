@@ -1,6 +1,7 @@
 package com.swulion.puppettale.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.swulion.puppettale.constant.PuppetMode;
 import com.swulion.puppettale.dto.*;
 import com.swulion.puppettale.entity.ChatMessage;
 import com.swulion.puppettale.entity.Speaker;
@@ -36,6 +37,7 @@ public class ChatService {
     private final ChatMessageRepository chatMessageRepository;
     private final RestTemplate restTemplate;
     private final SoundService soundService;
+    private final PuppetService puppetService;
     private final ConcurrentMap<String, String> sessionSoundMap = new ConcurrentHashMap<>();
 
     // application.properties에서 API Key 주입
@@ -52,12 +54,27 @@ public class ChatService {
     private Resource aiSystemPromptResource;
     private String aiSystemPromptTemplate;
 
+    @Value("classpath:prompts/ai_systemPrompt_affectionate.txt")
+    private Resource affectionatePromptResource;
+    private String affectionatePromptTemplate;
+
+    @Value("classpath:prompts/ai_systemPrompt_energetic.txt")
+    private Resource energeticPromptResource;
+    private String energeticPromptTemplate;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @PostConstruct
     public void init() {
-        try (Reader reader = new InputStreamReader(aiSystemPromptResource.getInputStream(), UTF_8)) {
-            this.aiSystemPromptTemplate = FileCopyUtils.copyToString(reader);
+        try {
+            // 공통 기반 템플릿
+            this.aiSystemPromptTemplate = FileCopyUtils.copyToString(
+                    new InputStreamReader(aiSystemPromptResource.getInputStream(), UTF_8));
+            // 모드별
+            this.affectionatePromptTemplate = FileCopyUtils.copyToString(
+                    new InputStreamReader(affectionatePromptResource.getInputStream(), UTF_8));
+            this.energeticPromptTemplate = FileCopyUtils.copyToString(
+                    new InputStreamReader(energeticPromptResource.getInputStream(), UTF_8));
         } catch (IOException e){
             this.aiSystemPromptTemplate = "프롬프트 로드 실패";
         }
@@ -75,15 +92,16 @@ public class ChatService {
             long lastTime = lastRequestTimeMap.get(sessionId);
             if (currentTime - lastTime < 2000) { // 2초 간격
                 log.warn("중복 채팅 요청 차단: sessionId={}", sessionId);
-                // 빈 응답을 보내거나 기존 처리 중임을 알림
                 return ChatResponseDto.builder().aiResponse("생각 중이야! 잠시만 기다려줘.").build();
             }
         }
         lastRequestTimeMap.put(sessionId, currentTime);
 
+        Long childId = (request.getChildId() != null) ? request.getChildId() : 1L;
+        PuppetMode currentMode = puppetService.getPuppetMode(childId);
+
         String userMessage = request.getUserMessage();
         String soundId = Optional.ofNullable(request.getSoundId()).orElse("none"); // soundId가 없으면 "none" 사용
-
         String userName = Optional.ofNullable(request.getUserName()).orElse("아기사자");
         Integer userAge = request.getUserAge();
         String userConstraint = Optional.ofNullable(request.getUserConstraint()).orElse("없음");
@@ -96,7 +114,7 @@ public class ChatService {
 
         // 2. AI 응답 생성 (soundId와 함께 Gemini 호출)
         String aiResponse = callGeminiApi(sessionId, userMessage, soundId,
-                userName, userAge, userConstraint, puppetName);
+                userName, userAge, userConstraint, puppetName, currentMode);
         String finalSoundId = sessionSoundMap.getOrDefault(sessionId, "none");
         String backgroundUrl = soundService.getBackgroundImageUrl(finalSoundId);
 
@@ -115,7 +133,8 @@ public class ChatService {
     }
 
     private String callGeminiApi(String sessionId, String userMessage, String soundId,
-                                 String userName, Integer userAge, String userConstraint, String puppetName) {
+                                 String userName, Integer userAge, String userConstraint,
+                                 String puppetName, PuppetMode puppetMode) {
         String currentSoundId = Optional.ofNullable(soundId).orElse("").toLowerCase();
 
         // soundId가 명시적으로 제공된 경우에만 맵을 업데이트
@@ -129,11 +148,15 @@ public class ChatService {
         // 사운드 컨텍스트와 기본 페르소나를 결합하여 최종 시스템 명령 생성
         String soundContext = soundService.getAiContext(currentSoundId); // 결정된 soundId 사용
 
+        // 모드에 따른 지침 선택
+        String modeInstruction = (puppetMode == PuppetMode.ENERGETIC) ? energeticPromptTemplate : affectionatePromptTemplate;
+        String combinedConstraint = modeInstruction + "\n(추가 제약사항: " + userConstraint + ")";
+
         String systemInstruction = this.aiSystemPromptTemplate
                 .replace("{Puppet_Name}", puppetName)
                 .replace("{User_Name}", userName)
                 .replace("{User_Age}", userAge != null ? userAge.toString() : "7")
-                .replace("{User_Constraint}", userConstraint)
+                .replace("{User_Constraint}", combinedConstraint)
                 + "\n\n" + soundContext;
 
         // 이전 대화 기록 조회 (시간 순)
@@ -191,7 +214,7 @@ public class ChatService {
                 if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
                     String jsonText = response.getBody();
 
-                    log.error("Gemini Raw Response Body: {}" + jsonText);
+                    log.error("Gemini Raw Response Body: {}", jsonText);
 
                     GeminiApiResponse apiResponse = objectMapper.readValue(jsonText, GeminiApiResponse.class);
 
