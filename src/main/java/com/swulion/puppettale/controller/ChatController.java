@@ -41,10 +41,10 @@ public class ChatController {
 
     // 특정 세션아이디의 대화 기록 조회
     // [GET] /api/chat/history/{sessionId}
-    @GetMapping("/history/{sessionId}")
-    public ResponseEntity<?> getSessionHistory(@PathVariable String sessionId) {
+    @GetMapping("/history/{childId}/{sessionId}")
+    public ResponseEntity<?> getSessionHistory(@PathVariable Long childId, @PathVariable String sessionId) {
         try {
-            List<ChatMessage> history = dischargeService.getConversationHistory(sessionId);
+            List<ChatMessage> history = dischargeService.getConversationHistory(childId, sessionId);
             return ResponseEntity.ok(history);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(e.getMessage());

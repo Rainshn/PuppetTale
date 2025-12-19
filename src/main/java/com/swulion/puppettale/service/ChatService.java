@@ -18,7 +18,6 @@ import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestTemplate;
 
 import java.io.InputStreamReader;
-import java.io.Reader;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -39,6 +38,7 @@ public class ChatService {
     private final SoundService soundService;
     private final PuppetService puppetService;
     private final ConcurrentMap<String, String> sessionSoundMap = new ConcurrentHashMap<>();
+    private final FairyTaleService fairyTaleService;
 
     // application.properties에서 API Key 주입
     @Value("${api.key.gemini}")
@@ -114,7 +114,7 @@ public class ChatService {
 
         // 2. AI 응답 생성 (soundId와 함께 Gemini 호출)
         String aiResponse = callGeminiApi(sessionId, userMessage, soundId,
-                userName, userAge, userConstraint, puppetName, currentMode);
+                userName, userAge, userConstraint, puppetName, currentMode, childId);
         String finalSoundId = sessionSoundMap.getOrDefault(sessionId, "none");
         String backgroundUrl = soundService.getBackgroundImageUrl(finalSoundId);
 
@@ -134,7 +134,7 @@ public class ChatService {
 
     private String callGeminiApi(String sessionId, String userMessage, String soundId,
                                  String userName, Integer userAge, String userConstraint,
-                                 String puppetName, PuppetMode puppetMode) {
+                                 String puppetName, PuppetMode puppetMode, Long childId) {
         String currentSoundId = Optional.ofNullable(soundId).orElse("").toLowerCase();
 
         // soundId가 명시적으로 제공된 경우에만 맵을 업데이트
@@ -183,14 +183,6 @@ public class ChatService {
                             .build()
             );
         }
-
-        // 3. 현재 사용자 메시지를 마지막 Content로 추가
-        contents.add(
-                GeminiChatRequestDto.Content.builder()
-                        .role("user")
-                        .parts(List.of(new GeminiChatRequestDto.Part(userMessage)))
-                        .build()
-        );
 
         // 요청 DTO 생성
         GeminiChatRequestDto requestBody = new GeminiChatRequestDto(contents);

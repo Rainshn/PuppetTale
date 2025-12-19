@@ -6,6 +6,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -39,4 +40,6 @@ public class Child extends BaseEntity {
 
     @OneToMany(mappedBy = "child", fetch = FetchType.LAZY)
     private List<FairyTale> fairyTales = new ArrayList<>();
+
+    private LocalDateTime lastDischargedAt; // 마지막 퇴원 시간
 }

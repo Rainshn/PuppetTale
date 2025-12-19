@@ -3,6 +3,7 @@ package com.swulion.puppettale.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.swulion.puppettale.dto.*;
 import com.swulion.puppettale.entity.ChatMessage;
+import com.swulion.puppettale.entity.Child;
 import com.swulion.puppettale.entity.FairyTale;
 import com.swulion.puppettale.entity.Speaker;
 import com.swulion.puppettale.repository.ChatMessageRepository;
@@ -88,7 +89,7 @@ public class DischargeService {
         }
 
         // 대화 분석
-        GeminiChatJsonContentDto analysisResult = analyzeChatHistory(sessionId, userName, userAge, puppetName);
+        GeminiChatJsonContentDto analysisResult = analyzeChatHistory(childId, sessionId, userName, userAge, puppetName);
 
         if (analysisResult == null || analysisResult.getThoughtProcess() == null) {
             return StoryCreationResponseDto.builder()
@@ -138,6 +139,7 @@ public class DischargeService {
 
         // 동화 저장
         FairyTale saved = fairyTaleService.saveFairyTale(childId, newTitle, pages);
+        fairyTaleService.updateLastDischargedAt(childId);
 
         return StoryCreationResponseDto.builder()
                 .sessionId(sessionId)
@@ -211,12 +213,10 @@ public class DischargeService {
                 ". Maintain a consistent fairytale mood, soft colors, high detail, no text.";
     }
 
-    // 특정 세션의 모든 대화 기록을 조회하여 동화책 생성 준비
+    // 특정 세션의 모든 대화 기록을 조회하여 동화책 생성 준비 - 조회용
     @Transactional(readOnly = true)
-    public List<ChatMessage> getConversationHistory(String sessionId) {
-        // 모든 대화 기록을 시간 순으로 조회
+    public List<ChatMessage> getConversationHistory(Long childId, String sessionId) {
         List<ChatMessage> history = chatMessageRepository.findBySessionIdOrderByTimestampAsc(sessionId);
-
         if (history.isEmpty()) {
             throw new IllegalArgumentException("해당 세션 ID(" + sessionId + ")에 대한 대화 기록이 존재하지 않습니다.");
         }
@@ -224,14 +224,14 @@ public class DischargeService {
     }
 
     // 대화 로그를 기반으로 Gemini에 분석을 요청하고, ThoughtProcess DTO를 반환
-    private GeminiChatJsonContentDto analyzeChatHistory(String sessionId, String userName, Integer userAge, String puppetName) {
+    private GeminiChatJsonContentDto analyzeChatHistory(Long childId, String sessionId, String userName, Integer userAge, String puppetName) {
         String systemInstruction = this.aiSystemPromptTemplate
                 .replace("{Puppet_Name}", puppetName)
                 .replace("{User_Name}", userName)
                 .replace("{User_Age}", userAge != null ? userAge.toString() : "7")
                 .replace("{User_Constraint}", "없음");
 
-        List<ChatMessage> history = chatMessageRepository.findBySessionIdOrderByTimestampAsc(sessionId);
+        List<ChatMessage> history = getChatMessagesForStory(childId, sessionId);
         if (history.isEmpty()) {
             log.warn("세션 {}에 대화 기록이 없어 분석을 시작할 수 없습니다.", sessionId);
             return null;
@@ -334,5 +334,21 @@ public class DischargeService {
             }
         }
         return null;
+    }
+
+    // Child 조회 + 대화 조회 메서드 - 동화 생성용
+    private List<ChatMessage> getChatMessagesForStory(Long childId, String sessionId) {
+        Child child = fairyTaleService.getChild(childId);
+
+        if (child.getLastDischargedAt() == null) {
+            return chatMessageRepository
+                    .findBySessionIdOrderByTimestampAsc(sessionId);
+        }
+
+        return chatMessageRepository
+                .findBySessionIdAndTimestampAfterOrderByTimestampAsc(
+                        sessionId,
+                        child.getLastDischargedAt()
+                );
     }
 }
