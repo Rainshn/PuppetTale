@@ -62,9 +62,24 @@ public class ChatService {
         }
     }
 
+    private final ConcurrentMap<String, Long> lastRequestTimeMap = new ConcurrentHashMap<>();
+
     @Transactional
     public ChatResponseDto processChat(ChatStartRequestDto request) { // DTO를 ChatStartRequestDto로 통일 (soundId 포함)
         String sessionId = request.getSessionId();
+        long currentTime = System.currentTimeMillis();
+
+        // 중복 전송 방지 로직 (2초 이내 동일 세션 요청 차단)
+        if (lastRequestTimeMap.containsKey(sessionId)) {
+            long lastTime = lastRequestTimeMap.get(sessionId);
+            if (currentTime - lastTime < 2000) { // 2초 간격
+                log.warn("중복 채팅 요청 차단: sessionId={}", sessionId);
+                // 빈 응답을 보내거나 기존 처리 중임을 알림
+                return ChatResponseDto.builder().aiResponse("생각 중이야! 잠시만 기다려줘.").build();
+            }
+        }
+        lastRequestTimeMap.put(sessionId, currentTime);
+
         String userMessage = request.getUserMessage();
         String soundId = Optional.ofNullable(request.getSoundId()).orElse("none"); // soundId가 없으면 "none" 사용
 
