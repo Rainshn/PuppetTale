@@ -5,6 +5,7 @@ import com.swulion.puppettale.dto.*;
 import com.swulion.puppettale.entity.ChatMessage;
 import com.swulion.puppettale.entity.Speaker;
 import com.swulion.puppettale.repository.ChatMessageRepository;
+import com.swulion.puppettale.util.KoreanParticleUtil;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -210,10 +211,16 @@ public class ChatService {
                     String finalResponse = geminiResult.getResponse();
 
                     if ("RED_FLAG".equalsIgnoreCase(safetyStatus)) {
-                        finalResponse = "저런, 그건 너무 위험하고 무서운 생각이야. " +
-                                puppetName + "는 " + userName + "이 너무 소중해서, 이 이야기는 보호자님께 꼭 전해야겠어.";
+                        finalResponse =
+                                "저런, 그건 너무 위험하고 무서운 생각이야. " +
+                                        puppetName + KoreanParticleUtil.eunNeun(puppetName) + " " +
+                                        userName + KoreanParticleUtil.iGa(userName) + " 너무 소중해서, " +
+                                        "이 이야기는 보호자님께 꼭 전해야겠어.";
                     } else if ("MEDICAL".equalsIgnoreCase(safetyStatus)) {
-                        finalResponse = userName + " 많이 아프구나. 의사 선생님이 도와줄 수 있게 말씀드려볼까? 주위에 보호자가 계실까?";
+                        finalResponse =
+                                userName + KoreanParticleUtil.eunNeun(userName) +
+                                        " 많이 아프구나. 의사 선생님이 도와줄 수 있게 말씀드려볼까? " +
+                                        "주위에 보호자가 계실까?";
                     }
 
                     if (finalResponse != null) {
