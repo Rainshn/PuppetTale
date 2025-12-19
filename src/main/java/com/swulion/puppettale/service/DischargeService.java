@@ -135,7 +135,8 @@ public class DischargeService {
                 .sessionId(sessionId)
                 .fairyTaleId(saved != null ? saved.getId() : null)
                 .title(newTitle)
-                .thumbnailUrl(pages.isEmpty() ? null : pages.get(0).getImageUrl())
+                // 마지막 페이지를 썸네일로 지정
+                .thumbnailUrl(pages.isEmpty() ? null : pages.get(pages.size() - 1).getImageUrl())
                 .pages(pages)
                 .createdStory(createdStory)
                 .detectedEmotion(detectedEmotion)
@@ -196,15 +197,17 @@ public class DischargeService {
     }
 
     private String buildImagePromptForPage(FairyTalePageData page, String userName, String puppetName) {
-        return "동화 삽화 생성: " + page.getText() +
-                " 스타일: 아동용, 단순, 밝고 따뜻한 색감, 귀엽고 위로가 되는 분위기.";
+        String pageContext = page.getText();
+
+        return "A beautiful storybook scene showing: " + pageContext +
+                ". Maintain a consistent fairytale mood, soft colors, high detail, no text.";
     }
 
-    // 이미지 생성 스텁
-    private String callImageGeneration(String prompt) {
-        // TODO: 제미나이 이미지 API 연동. 현재는 placeholder 반환
-        return "https://cdn.example.com/placeholder-image.png";
-    }
+//    // 이미지 생성 스텁
+//    private String callImageGeneration(String prompt) {
+//        // TODO: 제미나이 이미지 API 연동. 현재는 placeholder 반환
+//        return "https://cdn.example.com/placeholder-image.png";
+//    }
 
     // 특정 세션의 모든 대화 기록을 조회하여 동화책 생성 준비
     @Transactional(readOnly = true)
