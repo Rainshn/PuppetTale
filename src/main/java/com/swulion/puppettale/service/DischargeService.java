@@ -3,6 +3,7 @@ package com.swulion.puppettale.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.swulion.puppettale.dto.*;
 import com.swulion.puppettale.entity.ChatMessage;
+import com.swulion.puppettale.entity.Child;
 import com.swulion.puppettale.entity.FairyTale;
 import com.swulion.puppettale.entity.Speaker;
 import com.swulion.puppettale.repository.ChatMessageRepository;
@@ -79,8 +80,16 @@ public class DischargeService {
         Integer userAge = request.getUserAge();
         String puppetName = Optional.ofNullable(request.getPuppetName()).orElse("토리");
 
+        // 일일 25개 생성 제한
+        if (fairyTaleService.getTodayStoryCount(childId) >= 25) {
+            return StoryCreationResponseDto.builder()
+                    .sessionId(request.getSessionId())
+                    .createdStory("오늘은 벌써 25개의 동화를 만들었어! 내일 더 재미있는 이야기를 들려줄게.")
+                    .build();
+        }
+
         // 대화 분석
-        GeminiChatJsonContentDto analysisResult = analyzeChatHistory(sessionId, userName, userAge, puppetName);
+        GeminiChatJsonContentDto analysisResult = analyzeChatHistory(childId, sessionId, userName, userAge, puppetName);
 
         if (analysisResult == null || analysisResult.getThoughtProcess() == null) {
             return StoryCreationResponseDto.builder()
@@ -122,7 +131,12 @@ public class DischargeService {
 
         // 페이지별 이미지 생성 + S3 업로드
         for (FairyTalePageData page : pages) {
-            String prompt = buildImagePromptForPage(page, userName, puppetName);
+            String prompt = imageService.buildFinalPrompt(
+                    page.getText(),
+                    userName,
+                    puppetName,
+                    ingredients
+            );
             String imageUrl = imageService.generateAndUploadImage(prompt);
 
             page.setImageUrl(imageUrl);
@@ -130,12 +144,14 @@ public class DischargeService {
 
         // 동화 저장
         FairyTale saved = fairyTaleService.saveFairyTale(childId, newTitle, pages);
+        fairyTaleService.updateLastDischargedAt(childId);
 
         return StoryCreationResponseDto.builder()
                 .sessionId(sessionId)
                 .fairyTaleId(saved != null ? saved.getId() : null)
                 .title(newTitle)
-                .thumbnailUrl(pages.isEmpty() ? null : pages.get(0).getImageUrl())
+                // 마지막 페이지를 썸네일로 지정
+                .thumbnailUrl(pages.isEmpty() ? null : pages.get(pages.size() - 1).getImageUrl())
                 .pages(pages)
                 .createdStory(createdStory)
                 .detectedEmotion(detectedEmotion)
@@ -195,23 +211,10 @@ public class DischargeService {
         return pages;
     }
 
-    private String buildImagePromptForPage(FairyTalePageData page, String userName, String puppetName) {
-        return "동화 삽화 생성: " + page.getText() +
-                " 스타일: 아동용, 단순, 밝고 따뜻한 색감, 귀엽고 위로가 되는 분위기.";
-    }
-
-    // 이미지 생성 스텁
-    private String callImageGeneration(String prompt) {
-        // TODO: 제미나이 이미지 API 연동. 현재는 placeholder 반환
-        return "https://cdn.example.com/placeholder-image.png";
-    }
-
-    // 특정 세션의 모든 대화 기록을 조회하여 동화책 생성 준비
+    // 특정 세션의 모든 대화 기록을 조회하여 동화책 생성 준비 - 조회용
     @Transactional(readOnly = true)
-    public List<ChatMessage> getConversationHistory(String sessionId) {
-        // 모든 대화 기록을 시간 순으로 조회
+    public List<ChatMessage> getConversationHistory(Long childId, String sessionId) {
         List<ChatMessage> history = chatMessageRepository.findBySessionIdOrderByTimestampAsc(sessionId);
-
         if (history.isEmpty()) {
             throw new IllegalArgumentException("해당 세션 ID(" + sessionId + ")에 대한 대화 기록이 존재하지 않습니다.");
         }
@@ -219,14 +222,14 @@ public class DischargeService {
     }
 
     // 대화 로그를 기반으로 Gemini에 분석을 요청하고, ThoughtProcess DTO를 반환
-    private GeminiChatJsonContentDto analyzeChatHistory(String sessionId, String userName, Integer userAge, String puppetName) {
+    private GeminiChatJsonContentDto analyzeChatHistory(Long childId, String sessionId, String userName, Integer userAge, String puppetName) {
         String systemInstruction = this.aiSystemPromptTemplate
                 .replace("{Puppet_Name}", puppetName)
                 .replace("{User_Name}", userName)
                 .replace("{User_Age}", userAge != null ? userAge.toString() : "7")
                 .replace("{User_Constraint}", "없음");
 
-        List<ChatMessage> history = chatMessageRepository.findBySessionIdOrderByTimestampAsc(sessionId);
+        List<ChatMessage> history = getChatMessagesForStory(childId, sessionId);
         if (history.isEmpty()) {
             log.warn("세션 {}에 대화 기록이 없어 분석을 시작할 수 없습니다.", sessionId);
             return null;
@@ -329,5 +332,21 @@ public class DischargeService {
             }
         }
         return null;
+    }
+
+    // Child 조회 + 대화 조회 메서드 - 동화 생성용
+    private List<ChatMessage> getChatMessagesForStory(Long childId, String sessionId) {
+        Child child = fairyTaleService.getChild(childId);
+
+        if (child.getLastDischargedAt() == null) {
+            return chatMessageRepository
+                    .findBySessionIdOrderByTimestampAsc(sessionId);
+        }
+
+        return chatMessageRepository
+                .findBySessionIdAndTimestampAfterOrderByTimestampAsc(
+                        sessionId,
+                        child.getLastDischargedAt()
+                );
     }
 }

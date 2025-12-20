@@ -11,6 +11,7 @@ import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
 
@@ -121,5 +122,25 @@ public class FairyTaleService {
                 .orElseThrow(() -> new IllegalArgumentException("동화를 찾을 수 없습니다."));
 
         fairyTale.softDelete();
+    }
+
+    // 오늘 날짜의 시작 시간
+    @Transactional
+    public long getTodayStoryCount(Long childId){
+        java.time.LocalDateTime startOfToday = java.time.LocalDate.now().atStartOfDay();
+        return fairyTaleRepository.countByChildIdAndIsDeletedFalseAndCreatedAtAfter(childId, startOfToday);
+    }
+
+    // 퇴원 시점
+    @Transactional
+    public void updateLastDischargedAt(Long childId) {
+        Child child = childRepository.findById(childId).orElseThrow();
+        child.setLastDischargedAt(LocalDateTime.now());
+    }
+
+    // 아동 정보
+    public Child getChild(Long childId) {
+        return childRepository.findById(childId)
+                .orElseThrow(() -> new IllegalArgumentException("아동 정보를 찾을 수 없습니다."));
     }
 }

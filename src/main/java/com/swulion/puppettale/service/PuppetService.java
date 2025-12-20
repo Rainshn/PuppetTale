@@ -1,5 +1,6 @@
 package com.swulion.puppettale.service;
 
+import com.swulion.puppettale.constant.PuppetMode;
 import com.swulion.puppettale.dto.UpdatePuppetModeRequest;
 import com.swulion.puppettale.dto.UpdatePuppetNameRequest;
 import com.swulion.puppettale.entity.Child;
@@ -42,5 +43,15 @@ public class PuppetService {
         }
 
         puppet.changeMode(request.getPuppetMode());
+    }
+
+    // 퍼펫 모드 조회
+    public PuppetMode getPuppetMode(Long childId) {
+        return childRepository.findById(childId)
+                .map(child -> {
+                    Puppet puppet = child.getPuppet();
+                    return puppet != null ? puppet.getMode() : PuppetMode.AFFECTIONATE;
+                })
+                .orElse(PuppetMode.AFFECTIONATE);
     }
 }

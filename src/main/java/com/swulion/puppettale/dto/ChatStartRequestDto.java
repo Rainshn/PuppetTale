@@ -14,4 +14,5 @@ public class ChatStartRequestDto {
     private Integer userAge;
     private String userConstraint;
     private String puppetName; // 기본값: 토리
+    private Long childId;
 }

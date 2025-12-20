@@ -1,10 +1,15 @@
 package com.swulion.puppettale.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.swulion.puppettale.constant.PuppetMode;
 import com.swulion.puppettale.dto.*;
 import com.swulion.puppettale.entity.ChatMessage;
+import com.swulion.puppettale.entity.Child;
+import com.swulion.puppettale.entity.Puppet;
 import com.swulion.puppettale.entity.Speaker;
 import com.swulion.puppettale.repository.ChatMessageRepository;
+import com.swulion.puppettale.repository.ChildRepository;
+import com.swulion.puppettale.util.KoreanParticleUtil;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,9 +21,10 @@ import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestTemplate;
 
 import java.io.InputStreamReader;
-import java.io.Reader;
 import java.io.IOException;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.Period;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -33,9 +39,12 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 public class ChatService {
 
     private final ChatMessageRepository chatMessageRepository;
+    private final ChildRepository childRepository;
     private final RestTemplate restTemplate;
     private final SoundService soundService;
+    private final PuppetService puppetService;
     private final ConcurrentMap<String, String> sessionSoundMap = new ConcurrentHashMap<>();
+    private final FairyTaleService fairyTaleService;
 
     // application.properties에서 API Key 주입
     @Value("${api.key.gemini}")
@@ -51,42 +60,84 @@ public class ChatService {
     private Resource aiSystemPromptResource;
     private String aiSystemPromptTemplate;
 
+    @Value("classpath:prompts/ai_systemPrompt_affectionate.txt")
+    private Resource affectionatePromptResource;
+    private String affectionatePromptTemplate;
+
+    @Value("classpath:prompts/ai_systemPrompt_energetic.txt")
+    private Resource energeticPromptResource;
+    private String energeticPromptTemplate;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @PostConstruct
     public void init() {
-        try (Reader reader = new InputStreamReader(aiSystemPromptResource.getInputStream(), UTF_8)) {
-            this.aiSystemPromptTemplate = FileCopyUtils.copyToString(reader);
+        try {
+            // 공통 기반 템플릿
+            this.aiSystemPromptTemplate = FileCopyUtils.copyToString(
+                    new InputStreamReader(aiSystemPromptResource.getInputStream(), UTF_8));
+            // 모드별
+            this.affectionatePromptTemplate = FileCopyUtils.copyToString(
+                    new InputStreamReader(affectionatePromptResource.getInputStream(), UTF_8));
+            this.energeticPromptTemplate = FileCopyUtils.copyToString(
+                    new InputStreamReader(energeticPromptResource.getInputStream(), UTF_8));
         } catch (IOException e){
             this.aiSystemPromptTemplate = "프롬프트 로드 실패";
         }
     }
 
+    private final ConcurrentMap<String, Long> lastRequestTimeMap = new ConcurrentHashMap<>();
+
     @Transactional
     public ChatResponseDto processChat(ChatStartRequestDto request) { // DTO를 ChatStartRequestDto로 통일 (soundId 포함)
         String sessionId = request.getSessionId();
+        long currentTime = System.currentTimeMillis();
+
+        // 중복 전송 방지 로직 (2초 이내 동일 세션 요청 차단)
+        if (lastRequestTimeMap.containsKey(sessionId)) {
+            long lastTime = lastRequestTimeMap.get(sessionId);
+            if (currentTime - lastTime < 2000) { // 2초 간격
+                log.warn("중복 채팅 요청 차단: sessionId={}", sessionId);
+                return ChatResponseDto.builder().aiResponse("생각 중이야! 잠시만 기다려줘.").build();
+            }
+        }
+        lastRequestTimeMap.put(sessionId, currentTime);
+
+        Long childId = (request.getChildId() != null) ? request.getChildId() : 3L; // FE 맞춰 하드코딩
+
+        Child child = childRepository.findById(childId)
+                .orElseThrow(() -> new RuntimeException("아동 정보를 찾을 수 없습니다."));
+
+        Puppet puppet = child.getPuppet();
+        if (puppet == null) {
+            throw new RuntimeException("해당 아동의 퍼펫 설정이 존재하지 않습니다.");
+        }
+
         String userMessage = request.getUserMessage();
         String soundId = Optional.ofNullable(request.getSoundId()).orElse("none"); // soundId가 없으면 "none" 사용
 
-        String userName = Optional.ofNullable(request.getUserName()).orElse("아기사자");
-        Integer userAge = request.getUserAge();
+        String userName = child.getName();
+        Integer userAge = calculateAge(child.getBirthdate());
+        if (userAge == null) userAge = 7;
         String userConstraint = Optional.ofNullable(request.getUserConstraint()).orElse("없음");
-        String puppetName = Optional.ofNullable(request.getPuppetName()).orElse("토리");
+
+        String puppetName = puppet.getName();
+        PuppetMode currentMode = puppetService.getPuppetMode(childId);
 
         LocalDateTime now = LocalDateTime.now();
 
         // 1. 사용자 메시지 저장
-        saveMessage(sessionId, Speaker.USER, userMessage, now);
+        saveMessage(sessionId, Speaker.USER, userMessage, now, childId);
 
         // 2. AI 응답 생성 (soundId와 함께 Gemini 호출)
         String aiResponse = callGeminiApi(sessionId, userMessage, soundId,
-                userName, userAge, userConstraint, puppetName);
+                userName, userAge, userConstraint, puppetName, currentMode, childId);
         String finalSoundId = sessionSoundMap.getOrDefault(sessionId, "none");
         String backgroundUrl = soundService.getBackgroundImageUrl(finalSoundId);
 
         // 3. AI 응답 메시지 저장
         LocalDateTime aiResponseTime = LocalDateTime.now();
-        saveMessage(sessionId, Speaker.AI, aiResponse, aiResponseTime);
+        saveMessage(sessionId, Speaker.AI, aiResponse, aiResponseTime, childId);
 
         // 4. 응답 DTO 생성
         return ChatResponseDto.builder()
@@ -98,8 +149,15 @@ public class ChatService {
                 .build();
     }
 
+    // 생년월일 기반 나이 계산
+    private Integer calculateAge(LocalDate birthdate) {
+        if (birthdate == null) return null;
+        return Period.between(birthdate, LocalDate.now()).getYears();
+    }
+
     private String callGeminiApi(String sessionId, String userMessage, String soundId,
-                                 String userName, Integer userAge, String userConstraint, String puppetName) {
+                                 String userName, Integer userAge, String userConstraint,
+                                 String puppetName, PuppetMode puppetMode, Long childId) {
         String currentSoundId = Optional.ofNullable(soundId).orElse("").toLowerCase();
 
         // soundId가 명시적으로 제공된 경우에만 맵을 업데이트
@@ -113,15 +171,24 @@ public class ChatService {
         // 사운드 컨텍스트와 기본 페르소나를 결합하여 최종 시스템 명령 생성
         String soundContext = soundService.getAiContext(currentSoundId); // 결정된 soundId 사용
 
+        // 모드에 따른 지침 선택
+        String modeInstruction = (puppetMode == PuppetMode.ENERGETIC) ? energeticPromptTemplate : affectionatePromptTemplate;
+
+        modeInstruction = modeInstruction
+                .replace("{Puppet_Name}", puppetName)
+                .replace("{User_Name}", userName);
+
+        String combinedConstraint = modeInstruction + "\n(추가 제약사항: " + userConstraint + ")";
+
         String systemInstruction = this.aiSystemPromptTemplate
                 .replace("{Puppet_Name}", puppetName)
                 .replace("{User_Name}", userName)
                 .replace("{User_Age}", userAge != null ? userAge.toString() : "7")
-                .replace("{User_Constraint}", userConstraint)
+                .replace("{User_Constraint}", combinedConstraint)
                 + "\n\n" + soundContext;
 
         // 이전 대화 기록 조회 (시간 순)
-        List<ChatMessage> history = chatMessageRepository.findBySessionIdOrderByTimestampAsc(sessionId);
+        List<ChatMessage> history = chatMessageRepository.findBySessionIdAndChildIdOrderByTimestampAsc(sessionId, childId);
 
         // Contents 리스트 구성
         List<GeminiChatRequestDto.Content> contents = new ArrayList<>();
@@ -145,14 +212,6 @@ public class ChatService {
             );
         }
 
-        // 3. 현재 사용자 메시지를 마지막 Content로 추가
-        contents.add(
-                GeminiChatRequestDto.Content.builder()
-                        .role("user")
-                        .parts(List.of(new GeminiChatRequestDto.Part(userMessage)))
-                        .build()
-        );
-
         // 요청 DTO 생성
         GeminiChatRequestDto requestBody = new GeminiChatRequestDto(contents);
 
@@ -174,39 +233,101 @@ public class ChatService {
 
                 if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
                     String jsonText = response.getBody();
-
-                    log.error("Gemini Raw Response Body: {}" + jsonText);
+                    log.info("Gemini Raw Response Body: {}", jsonText);
 
                     GeminiApiResponse apiResponse = objectMapper.readValue(jsonText, GeminiApiResponse.class);
-
                     String innerJsonText = apiResponse.getCandidates().get(0)
                             .getContent().getParts().get(0).getText();
 
-                    if (innerJsonText.startsWith("```")) {
-                        innerJsonText = innerJsonText.replaceAll("^```json", "")
-                                .replaceAll("^```", "")
-                                .replaceAll("```$", "");
+                    if (innerJsonText.contains("```json")) {
+                        innerJsonText = innerJsonText.substring(innerJsonText.indexOf("```json") + 7);
+                        innerJsonText = innerJsonText.substring(0, innerJsonText.lastIndexOf("```"));
+                    } else if (innerJsonText.contains("```")) {
+                        innerJsonText = innerJsonText.substring(innerJsonText.indexOf("```") + 3);
+                        innerJsonText = innerJsonText.substring(0, innerJsonText.lastIndexOf("```"));
                     }
                     innerJsonText = innerJsonText.trim();
 
-                    GeminiChatJsonContentDto geminiResult = objectMapper.readValue(innerJsonText, GeminiChatJsonContentDto.class);
+//                    GeminiChatJsonContentDto geminiResult = objectMapper.readValue(innerJsonText, GeminiChatJsonContentDto.class);
+//                    String safetyStatus = geminiResult.getThoughtProcess().getSafetyStatus();
+//                    String finalResponse = geminiResult.getResponse();
 
-                    String safetyStatus = geminiResult.getThoughtProcess().getSafetyStatus();
-                    String finalResponse = geminiResult.getResponse();
+                    String finalResponse = "";
+                    String safetyStatus = "GREEN";
 
+                    try {
+                        // JSON 형식인 경우에만 파싱 시도
+                        if (innerJsonText.startsWith("{")) {
+                            GeminiChatJsonContentDto geminiResult = objectMapper.readValue(innerJsonText, GeminiChatJsonContentDto.class);
+                            safetyStatus = geminiResult.getThoughtProcess().getSafetyStatus();
+                            finalResponse = geminiResult.getResponse();
+                        } else {
+                            // JSON이 아니면(평문이면) 받은 텍스트 그대로를 응답으로 간주
+                            log.warn("Gemini가 JSON 형식을 지키지 않음. 평문 응답 처리: {}", innerJsonText);
+                            finalResponse = innerJsonText;
+                        }
+                    } catch (Exception e) {
+                        // 파싱 에러 발생 시 평문으로 치환
+                        log.error("JSON 파싱 에러 발생, 평문으로 전환: {}", e.getMessage());
+                        finalResponse = innerJsonText;
+                    }
+
+                    // HARMFUL 유해표현 처리
+                    if ("HARMFUL".equalsIgnoreCase(safetyStatus)) {
+                        if (finalResponse == null || finalResponse.isBlank()) {
+                            finalResponse =
+                                    userName + KoreanParticleUtil.iGa(userName) + ", 그 말은 다른 사람의 마음을 아프게 하는 말이야. '진짜 너무 화나!' 이렇게 예쁜 말로 표현해볼까?";
+                        }
+                    }
+
+                    // RED_FLAG 처리
                     if ("RED_FLAG".equalsIgnoreCase(safetyStatus)) {
-                        finalResponse = "저런, 그건 너무 위험하고 무서운 생각이야. " +
-                                puppetName + "는 " + userName + "이 너무 소중해서, 이 이야기는 보호자님께 꼭 전해야겠어.";
-                    } else if ("MEDICAL".equalsIgnoreCase(safetyStatus)) {
-                        finalResponse = userName + " 많이 아프구나. 의사 선생님이 도와줄 수 있게 말씀드려볼까? 주위에 보호자가 계실까?";
+                        Child child = childRepository.findById(childId)
+                                .orElseThrow(() -> new RuntimeException("아이 정보를 찾을 수 없습니다."));
+
+                        if (Boolean.TRUE.equals(child.getIsWarningState())) {
+                            // 2단계: 즉각 대응
+                            finalResponse =
+                                    userName + ", 그건 너무 무섭고 위험한 생각이야. " +
+                                    puppetName + KoreanParticleUtil.iGa(puppetName) + " 혼자서는 도와주기 어려워. 이건 꼭 보호자나 선생님이 같이 도와줘야 하는 이야기야. 우리 같이 말씀드리자.";
+                        } else {
+                            // 1단계: 경고
+                            finalResponse =
+                                    puppetName + KoreanParticleUtil.eunNeun(puppetName) + " " +
+                                    userName + KoreanParticleUtil.eulReul(userName) + " 정말 소중하게 생각하거든. 그런데 방금 이야기는 " +
+                                    puppetName + " 마음을 조금 무섭게 만드는 것 같아. 우리 조금 더 즐거운 이야기를 해볼까?";
+
+                            child.setIsWarningState(true);
+                            childRepository.save(child);
+
+                            log.info("1차 경고 - childId: {}", childId);
+                        }
+                    }
+
+                    // MEDICAL 처리
+                    else if ("MEDICAL".equalsIgnoreCase(safetyStatus)) {
+                        if (finalResponse == null || finalResponse.isBlank()) {
+                            finalResponse =
+                                    userName + KoreanParticleUtil.eunNeun(userName) +
+                                            " 많이 아프구나. 의사 선생님이 도와줄 수 있게 말씀드려볼까? " +
+                                            "주위에 보호자가 계실까?";
+                        }
                     }
 
                     if (finalResponse != null) {
-                        finalResponse = finalResponse.replace("\n", " ").replace("\r", " ").trim();
+                        finalResponse = finalResponse
+                                .replace("\n", " ")
+                                .replace("\r", " ")
+                                .replaceAll("\\s{2,}", " ")
+                                .trim();
                     }
 
-                    geminiResult.setResponse(finalResponse);
-                    return geminiResult.getResponse();
+//                    geminiResult.setResponse(finalResponse);
+//                    return geminiResult.getResponse();
+                    if (finalResponse == null || finalResponse.isBlank()) {
+                        finalResponse = "미안해, 토리가 잠시 생각을 정리하고 있어! 다시 한번 말해줄래?";
+                    }
+                    return finalResponse;
                 }
 
                 // 200번대가 아닌 응답이지만 5xx 오류는 아닌 경우
@@ -255,13 +376,14 @@ public class ChatService {
     @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
     public static class Part { private String text; }
 
-    private void saveMessage(String sessionId, Speaker speaker, String message, LocalDateTime timestamp) {
+    private void saveMessage(String sessionId, Speaker speaker, String message, LocalDateTime timestamp, Long childId) {
         ChatMessage chatLog = ChatMessage.builder()
                 .sessionId(sessionId)
                 .speaker(speaker)
                 .message(message)
                 .timestamp(timestamp)
                 .logDate(timestamp.toLocalDate())
+                .childId(childId)
                 .keywords(null)
                 .build();
 
