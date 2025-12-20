@@ -1,5 +1,6 @@
 package com.swulion.puppettale.service;
 
+import com.swulion.puppettale.dto.StoryIngredientsDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,18 +25,30 @@ public class ImageService {
     private String geminiApiKey;
 
     // 이미지 생성 프롬프트
-    private String buildFinalPrompt(String storyText) {
-        return "A high-quality, professional 2D digital storybook illustration for children. " +
-                "Style: Cute and rounded character designs, grainy chalk-like texture, soft pastel color palette. " +
-                "Details: Gentle gradients, glowing warm lighting, dreamy and cozy atmosphere. " +
-                "Subject: " + storyText + ". " +
-                "CRITICAL RULES: DO NOT include any text, letters, or words. STRICTLY NO TYPOGRAPHY. " +
-                "Focus entirely on depicting the scene described in the 'Subject' naturally and artistically." +
-                "No 3D render, no realism. Maintain a flat but textured 2D look.";
+    public String buildFinalPrompt(String pageText,
+                                   String userName,
+                                   String puppetName,
+                                   List<StoryIngredientsDto> storyIngredients) {
+        StringBuilder ingredientsDescription = new StringBuilder();
+        for (StoryIngredientsDto ingredient : storyIngredients) {
+            if (pageText.contains(ingredient.getFantasyElement())) {
+                ingredientsDescription.append(ingredient.getFantasyElement()).append(", ");
+            }
+        }
+
+        return "GENERATE_IMAGE_ONLY. NO TEXT. " +
+                "Professional 3D Pixar claymation style illustration. " +
+                "Style: Soft pastel colors, cute and rounded shapes, glowing magical lighting, cozy atmosphere. " +
+                "Main Character: A cute 7-year-old child named " + userName + ". " +
+                (pageText.contains(puppetName) ? "Include a friendly sea lion named " + puppetName + ". " : "") +
+                "Visual Scene to paint: " + pageText.trim() + ". " +
+                (ingredientsDescription.length() > 0 ? "Additional elements: " + ingredientsDescription.toString() : "") +
+                "CRITICAL RULES: Strictly NO text, NO letters, NO words, NO signage, NO subtitles, NO speech bubbles. " +
+                "Focus only on the visual storytelling. High-quality CGI render look.";
     }
 
-    public String generateAndUploadImage(String prompt) {
-        String refinedPrompt = buildFinalPrompt(prompt);
+    public String generateAndUploadImage(String fullPrompt) {
+        String refinedPrompt = fullPrompt;
 
         // Gemini 이미지 생성 API URL
         String url = "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -62,21 +75,26 @@ public class ImageService {
             List<Map<String, Object>> candidates = (List<Map<String, Object>>) responseBody.get("candidates");
             Map<String, Object> content = (Map<String, Object>) candidates.get(0).get("content");
             List<Map<String, Object>> parts = (List<Map<String, Object>>) content.get("parts");
-            Map<String, Object> firstPart = parts.get(0);
+
+            String base64Data = null;
+            for (Map<String, Object> part : parts) {
+                if (part.containsKey("inlineData")) {
+                    Map<String, Object> inlineData = (Map<String, Object>) part.get("inlineData");
+                    base64Data = (String) inlineData.get("data");
+                    break; // 이미지를 찾았으면 반복 중단
+                }
+            }
 
             // 이미지가 왔는지 확인
-            if (firstPart.containsKey("inlineData")) {
-                Map<String, Object> inlineData = (Map<String, Object>) firstPart.get("inlineData");
-                String base64 = (String) inlineData.get("data");
-
-                byte[] imageBytes = Base64.getDecoder().decode(base64);
+            if (base64Data != null) {
+                byte[] imageBytes = Base64.getDecoder().decode(base64Data);
                 String fileName = "stories/" + UUID.randomUUID() + ".png";
-
                 return s3StorageService.uploadImage(fileName, imageBytes);
             } else {
-                // 이미지가 아니라 텍스트가 온 경우
-                log.error("Gemini가 이미지 대신 텍스트를 반환함: {}", firstPart.get("text"));
-                return "https://puppettale-images.s3.ap-northeast-2.amazonaws.com/default-placeholder.png"; // 준비해둔 기본 이미지 URL
+                // 이미지가 정말 없을 때만 텍스트 로그
+                String textResponse = (parts.get(0).containsKey("text")) ? (String) parts.get(0).get("text") : "No Content";
+                log.error("Gemini 응답에 이미지 데이터가 없음. 텍스트 내용: {}", textResponse);
+                return "https://puppettale-images.s3.ap-northeast-2.amazonaws.com/default-placeholder.png";
             }
 
         } catch (Exception e) {

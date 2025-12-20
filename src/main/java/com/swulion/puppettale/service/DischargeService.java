@@ -131,7 +131,12 @@ public class DischargeService {
 
         // 페이지별 이미지 생성 + S3 업로드
         for (FairyTalePageData page : pages) {
-            String prompt = buildImagePromptForPage(page, userName, puppetName);
+            String prompt = imageService.buildFinalPrompt(
+                    page.getText(),
+                    userName,
+                    puppetName,
+                    ingredients
+            );
             String imageUrl = imageService.generateAndUploadImage(prompt);
 
             page.setImageUrl(imageUrl);
@@ -204,13 +209,6 @@ public class DischargeService {
             );
         }
         return pages;
-    }
-
-    private String buildImagePromptForPage(FairyTalePageData page, String userName, String puppetName) {
-        String pageContext = page.getText();
-
-        return "A beautiful storybook scene showing: " + pageContext +
-                ". Maintain a consistent fairytale mood, soft colors, high detail, no text.";
     }
 
     // 특정 세션의 모든 대화 기록을 조회하여 동화책 생성 준비 - 조회용
