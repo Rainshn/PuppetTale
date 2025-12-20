@@ -12,4 +12,7 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
 
     // 특정 시간 이후의 메시지만 세션별 조회
     List<ChatMessage> findBySessionIdAndTimestampAfterOrderByTimestampAsc(String sessionId, LocalDateTime lastDischargedAt);
+
+    // 아동별 대화 완전히 분리
+    List<ChatMessage> findBySessionIdAndChildIdOrderByTimestampAsc(String sessionId, Long childId);
 }

@@ -5,6 +5,7 @@ import com.swulion.puppettale.constant.PuppetMode;
 import com.swulion.puppettale.dto.*;
 import com.swulion.puppettale.entity.ChatMessage;
 import com.swulion.puppettale.entity.Child;
+import com.swulion.puppettale.entity.Puppet;
 import com.swulion.puppettale.entity.Speaker;
 import com.swulion.puppettale.repository.ChatMessageRepository;
 import com.swulion.puppettale.repository.ChildRepository;
@@ -21,7 +22,9 @@ import org.springframework.web.client.RestTemplate;
 
 import java.io.InputStreamReader;
 import java.io.IOException;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.Period;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -100,20 +103,31 @@ public class ChatService {
         }
         lastRequestTimeMap.put(sessionId, currentTime);
 
-        Long childId = (request.getChildId() != null) ? request.getChildId() : 1L;
-        PuppetMode currentMode = puppetService.getPuppetMode(childId);
+        Long childId = (request.getChildId() != null) ? request.getChildId() : 3L; // FE 맞춰 하드코딩
+
+        Child child = childRepository.findById(childId)
+                .orElseThrow(() -> new RuntimeException("아동 정보를 찾을 수 없습니다."));
+
+        Puppet puppet = child.getPuppet();
+        if (puppet == null) {
+            throw new RuntimeException("해당 아동의 퍼펫 설정이 존재하지 않습니다.");
+        }
 
         String userMessage = request.getUserMessage();
         String soundId = Optional.ofNullable(request.getSoundId()).orElse("none"); // soundId가 없으면 "none" 사용
-        String userName = Optional.ofNullable(request.getUserName()).orElse("아기사자");
-        Integer userAge = request.getUserAge();
+
+        String userName = child.getName();
+        Integer userAge = calculateAge(child.getBirthdate());
+        if (userAge == null) userAge = 7;
         String userConstraint = Optional.ofNullable(request.getUserConstraint()).orElse("없음");
-        String puppetName = Optional.ofNullable(request.getPuppetName()).orElse("토리");
+
+        String puppetName = puppet.getName();
+        PuppetMode currentMode = puppetService.getPuppetMode(childId);
 
         LocalDateTime now = LocalDateTime.now();
 
         // 1. 사용자 메시지 저장
-        saveMessage(sessionId, Speaker.USER, userMessage, now);
+        saveMessage(sessionId, Speaker.USER, userMessage, now, childId);
 
         // 2. AI 응답 생성 (soundId와 함께 Gemini 호출)
         String aiResponse = callGeminiApi(sessionId, userMessage, soundId,
@@ -123,7 +137,7 @@ public class ChatService {
 
         // 3. AI 응답 메시지 저장
         LocalDateTime aiResponseTime = LocalDateTime.now();
-        saveMessage(sessionId, Speaker.AI, aiResponse, aiResponseTime);
+        saveMessage(sessionId, Speaker.AI, aiResponse, aiResponseTime, childId);
 
         // 4. 응답 DTO 생성
         return ChatResponseDto.builder()
@@ -133,6 +147,12 @@ public class ChatService {
                 .currentSoundId(finalSoundId)
                 .backgroundImageUrl(backgroundUrl)
                 .build();
+    }
+
+    // 생년월일 기반 나이 계산
+    private Integer calculateAge(LocalDate birthdate) {
+        if (birthdate == null) return null;
+        return Period.between(birthdate, LocalDate.now()).getYears();
     }
 
     private String callGeminiApi(String sessionId, String userMessage, String soundId,
@@ -153,6 +173,11 @@ public class ChatService {
 
         // 모드에 따른 지침 선택
         String modeInstruction = (puppetMode == PuppetMode.ENERGETIC) ? energeticPromptTemplate : affectionatePromptTemplate;
+
+        modeInstruction = modeInstruction
+                .replace("{Puppet_Name}", puppetName)
+                .replace("{User_Name}", userName);
+
         String combinedConstraint = modeInstruction + "\n(추가 제약사항: " + userConstraint + ")";
 
         String systemInstruction = this.aiSystemPromptTemplate
@@ -163,7 +188,7 @@ public class ChatService {
                 + "\n\n" + soundContext;
 
         // 이전 대화 기록 조회 (시간 순)
-        List<ChatMessage> history = chatMessageRepository.findBySessionIdOrderByTimestampAsc(sessionId);
+        List<ChatMessage> history = chatMessageRepository.findBySessionIdAndChildIdOrderByTimestampAsc(sessionId, childId);
 
         // Contents 리스트 구성
         List<GeminiChatRequestDto.Content> contents = new ArrayList<>();
@@ -351,13 +376,14 @@ public class ChatService {
     @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
     public static class Part { private String text; }
 
-    private void saveMessage(String sessionId, Speaker speaker, String message, LocalDateTime timestamp) {
+    private void saveMessage(String sessionId, Speaker speaker, String message, LocalDateTime timestamp, Long childId) {
         ChatMessage chatLog = ChatMessage.builder()
                 .sessionId(sessionId)
                 .speaker(speaker)
                 .message(message)
                 .timestamp(timestamp)
                 .logDate(timestamp.toLocalDate())
+                .childId(childId)
                 .keywords(null)
                 .build();
 

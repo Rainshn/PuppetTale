@@ -20,6 +20,8 @@ public class ChatMessage {
 
     private String sessionId; // 사용자 식별자
 
+    private Long childId;
+
     @Enumerated(EnumType.STRING)
     private Speaker speaker; // 발화 주체: USER, AI
 
