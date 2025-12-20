@@ -4,8 +4,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.swulion.puppettale.constant.PuppetMode;
 import com.swulion.puppettale.dto.*;
 import com.swulion.puppettale.entity.ChatMessage;
+import com.swulion.puppettale.entity.Child;
 import com.swulion.puppettale.entity.Speaker;
 import com.swulion.puppettale.repository.ChatMessageRepository;
+import com.swulion.puppettale.repository.ChildRepository;
 import com.swulion.puppettale.util.KoreanParticleUtil;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +36,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 public class ChatService {
 
     private final ChatMessageRepository chatMessageRepository;
+    private final ChildRepository childRepository;
     private final RestTemplate restTemplate;
     private final SoundService soundService;
     private final PuppetService puppetService;
@@ -205,7 +208,7 @@ public class ChatService {
 
                 if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
                     String jsonText = response.getBody();
-                    log.error("Gemini Raw Response Body: {}", jsonText);
+                    log.info("Gemini Raw Response Body: {}", jsonText);
 
                     GeminiApiResponse apiResponse = objectMapper.readValue(jsonText, GeminiApiResponse.class);
                     String innerJsonText = apiResponse.getCandidates().get(0)
@@ -244,14 +247,40 @@ public class ChatService {
                         finalResponse = innerJsonText;
                     }
 
-                    if ("RED_FLAG".equalsIgnoreCase(safetyStatus)) {
+                    // HARMFUL 유해표현 처리
+                    if ("HARMFUL".equalsIgnoreCase(safetyStatus)) {
                         if (finalResponse == null || finalResponse.isBlank()) {
-                            finalResponse = "저런, 그건 너무 위험하고 무서운 생각이야. " +
-                                    puppetName + KoreanParticleUtil.eunNeun(puppetName) + " " +
-                                    userName + KoreanParticleUtil.iGa(userName) + " 너무 소중해서, " +
-                                    "이 이야기는 보호자님께 꼭 전해야겠어.";
+                            finalResponse =
+                                    userName + KoreanParticleUtil.iGa(userName) + ", 그 말은 다른 사람의 마음을 아프게 하는 말이야. '진짜 너무 화나!' 이렇게 예쁜 말로 표현해볼까?";
                         }
-                    } else if ("MEDICAL".equalsIgnoreCase(safetyStatus)) {
+                    }
+
+                    // RED_FLAG 처리
+                    if ("RED_FLAG".equalsIgnoreCase(safetyStatus)) {
+                        Child child = childRepository.findById(childId)
+                                .orElseThrow(() -> new RuntimeException("아이 정보를 찾을 수 없습니다."));
+
+                        if (Boolean.TRUE.equals(child.getIsWarningState())) {
+                            // 2단계: 즉각 대응
+                            finalResponse =
+                                    userName + ", 그건 너무 무섭고 위험한 생각이야. " +
+                                    puppetName + KoreanParticleUtil.iGa(puppetName) + " 혼자서는 도와주기 어려워. 이건 꼭 보호자나 선생님이 같이 도와줘야 하는 이야기야. 우리 같이 말씀드리자.";
+                        } else {
+                            // 1단계: 경고
+                            finalResponse =
+                                    puppetName + KoreanParticleUtil.eunNeun(puppetName) + " " +
+                                    userName + KoreanParticleUtil.eulReul(userName) + " 정말 소중하게 생각하거든. 그런데 방금 이야기는 " +
+                                    puppetName + " 마음을 조금 무섭게 만드는 것 같아. 우리 조금 더 즐거운 이야기를 해볼까?";
+
+                            child.setIsWarningState(true);
+                            childRepository.save(child);
+
+                            log.info("1차 경고 - childId: {}", childId);
+                        }
+                    }
+
+                    // MEDICAL 처리
+                    else if ("MEDICAL".equalsIgnoreCase(safetyStatus)) {
                         if (finalResponse == null || finalResponse.isBlank()) {
                             finalResponse =
                                     userName + KoreanParticleUtil.eunNeun(userName) +

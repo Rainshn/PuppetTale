@@ -42,4 +42,5 @@ public class Child extends BaseEntity {
     private List<FairyTale> fairyTales = new ArrayList<>();
 
     private LocalDateTime lastDischargedAt; // 마지막 퇴원 시간
+    private Boolean isWarningState; // Red Flag 발화 상태
 }
