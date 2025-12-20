@@ -205,45 +205,75 @@ public class ChatService {
 
                 if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
                     String jsonText = response.getBody();
-
                     log.error("Gemini Raw Response Body: {}", jsonText);
 
                     GeminiApiResponse apiResponse = objectMapper.readValue(jsonText, GeminiApiResponse.class);
-
                     String innerJsonText = apiResponse.getCandidates().get(0)
                             .getContent().getParts().get(0).getText();
 
-                    if (innerJsonText.startsWith("```")) {
-                        innerJsonText = innerJsonText.replaceAll("^```json", "")
-                                .replaceAll("^```", "")
-                                .replaceAll("```$", "");
+                    if (innerJsonText.contains("```json")) {
+                        innerJsonText = innerJsonText.substring(innerJsonText.indexOf("```json") + 7);
+                        innerJsonText = innerJsonText.substring(0, innerJsonText.lastIndexOf("```"));
+                    } else if (innerJsonText.contains("```")) {
+                        innerJsonText = innerJsonText.substring(innerJsonText.indexOf("```") + 3);
+                        innerJsonText = innerJsonText.substring(0, innerJsonText.lastIndexOf("```"));
                     }
                     innerJsonText = innerJsonText.trim();
 
-                    GeminiChatJsonContentDto geminiResult = objectMapper.readValue(innerJsonText, GeminiChatJsonContentDto.class);
+//                    GeminiChatJsonContentDto geminiResult = objectMapper.readValue(innerJsonText, GeminiChatJsonContentDto.class);
+//                    String safetyStatus = geminiResult.getThoughtProcess().getSafetyStatus();
+//                    String finalResponse = geminiResult.getResponse();
 
-                    String safetyStatus = geminiResult.getThoughtProcess().getSafetyStatus();
-                    String finalResponse = geminiResult.getResponse();
+                    String finalResponse = "";
+                    String safetyStatus = "GREEN";
+
+                    try {
+                        // JSON 형식인 경우에만 파싱 시도
+                        if (innerJsonText.startsWith("{")) {
+                            GeminiChatJsonContentDto geminiResult = objectMapper.readValue(innerJsonText, GeminiChatJsonContentDto.class);
+                            safetyStatus = geminiResult.getThoughtProcess().getSafetyStatus();
+                            finalResponse = geminiResult.getResponse();
+                        } else {
+                            // JSON이 아니면(평문이면) 받은 텍스트 그대로를 응답으로 간주
+                            log.warn("Gemini가 JSON 형식을 지키지 않음. 평문 응답 처리: {}", innerJsonText);
+                            finalResponse = innerJsonText;
+                        }
+                    } catch (Exception e) {
+                        // 파싱 에러 발생 시 평문으로 치환
+                        log.error("JSON 파싱 에러 발생, 평문으로 전환: {}", e.getMessage());
+                        finalResponse = innerJsonText;
+                    }
 
                     if ("RED_FLAG".equalsIgnoreCase(safetyStatus)) {
-                        finalResponse =
-                                "저런, 그건 너무 위험하고 무서운 생각이야. " +
-                                        puppetName + KoreanParticleUtil.eunNeun(puppetName) + " " +
-                                        userName + KoreanParticleUtil.iGa(userName) + " 너무 소중해서, " +
-                                        "이 이야기는 보호자님께 꼭 전해야겠어.";
+                        if (finalResponse == null || finalResponse.isBlank()) {
+                            finalResponse = "저런, 그건 너무 위험하고 무서운 생각이야. " +
+                                    puppetName + KoreanParticleUtil.eunNeun(puppetName) + " " +
+                                    userName + KoreanParticleUtil.iGa(userName) + " 너무 소중해서, " +
+                                    "이 이야기는 보호자님께 꼭 전해야겠어.";
+                        }
                     } else if ("MEDICAL".equalsIgnoreCase(safetyStatus)) {
-                        finalResponse =
-                                userName + KoreanParticleUtil.eunNeun(userName) +
-                                        " 많이 아프구나. 의사 선생님이 도와줄 수 있게 말씀드려볼까? " +
-                                        "주위에 보호자가 계실까?";
+                        if (finalResponse == null || finalResponse.isBlank()) {
+                            finalResponse =
+                                    userName + KoreanParticleUtil.eunNeun(userName) +
+                                            " 많이 아프구나. 의사 선생님이 도와줄 수 있게 말씀드려볼까? " +
+                                            "주위에 보호자가 계실까?";
+                        }
                     }
 
                     if (finalResponse != null) {
-                        finalResponse = finalResponse.replace("\n", " ").replace("\r", " ").trim();
+                        finalResponse = finalResponse
+                                .replace("\n", " ")
+                                .replace("\r", " ")
+                                .replaceAll("\\s{2,}", " ")
+                                .trim();
                     }
 
-                    geminiResult.setResponse(finalResponse);
-                    return geminiResult.getResponse();
+//                    geminiResult.setResponse(finalResponse);
+//                    return geminiResult.getResponse();
+                    if (finalResponse == null || finalResponse.isBlank()) {
+                        finalResponse = "미안해, 토리가 잠시 생각을 정리하고 있어! 다시 한번 말해줄래?";
+                    }
+                    return finalResponse;
                 }
 
                 // 200번대가 아닌 응답이지만 5xx 오류는 아닌 경우

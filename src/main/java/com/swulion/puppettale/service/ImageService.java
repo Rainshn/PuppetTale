@@ -26,10 +26,12 @@ public class ImageService {
     // 이미지 생성 프롬프트
     private String buildFinalPrompt(String storyText) {
         return "A high-quality, professional 2D digital storybook illustration for children. " +
-                "Style: Soft pastel colors, warm lighting, cozy and whimsical atmosphere, thick clean lines. " +
+                "Style: Cute and rounded character designs, grainy chalk-like texture, soft pastel color palette. " +
+                "Details: Gentle gradients, glowing warm lighting, dreamy and cozy atmosphere. " +
                 "Subject: " + storyText + ". " +
                 "CRITICAL RULES: DO NOT include any text, letters, or words. STRICTLY NO TYPOGRAPHY. " +
-                "Focus entirely on depicting the scene described in the 'Subject' naturally and artistically.";
+                "Focus entirely on depicting the scene described in the 'Subject' naturally and artistically." +
+                "No 3D render, no realism. Maintain a flat but textured 2D look.";
     }
 
 //    public String generateAndUploadImage(String prompt) {
